@@ -1,135 +1,195 @@
-# Incident Report — Home SOC Lab
+[incident-report-home-soc-lab.md](https://github.com/user-attachments/files/32584015/incident-report-home-soc-lab.md)
+# Incident Response Report — Home SOC Lab
 
-**Classification:** Simulated Incident (Home Lab Environment)
-**Analyst:** Daniel Díaz
-**Environment:** Isolated VirtualBox Host-Only network (192.168.56.0/24)
-**Status:** Contained and Remediated
+**Classification:** Simulated intrusion exercise (self-hosted lab)
+**Environment:** Isolated Host-Only virtual network
+**Analyst:** Daniel Diaz
+**Date of exercise:** September 2026
 
 ---
 
 ## 1. Executive Summary
 
-On September 14, 2026, a simulated attacker gained unauthorized root access to a lab host (Metasploitable2) by exploiting a known vulnerability in the Samba service. The attacker established persistence and a periodic outbound connection resembling Command & Control (C2) beaconing. This activity was later detected through correlated network (Suricata) and host-based (Wazuh) monitoring, and fully remediated. This report documents the complete incident lifecycle, from initial reconnaissance to final verification, as a hands-on exercise in detection engineering and incident response.
+This report documents a full incident-response cycle carried out in a controlled home lab, built to simulate a realistic network intrusion from initial compromise through detection, containment, and eradication.
 
-## 2. Scope
+A vulnerable Linux target (Metasploitable2) was compromised via a known remote code execution vulnerability, after which an attacker-style persistence mechanism combined with a Command-and-Control (C2) beacon was installed. A SIEM stack (Wazuh) paired with a network intrusion detection system (Suricata) was used to detect the recurring C2 traffic, correlate it into a custom alert rule, and confirm the compromise. The threat was then contained and remediated, with post-remediation monitoring supporting that no further malicious activity was generated.
 
-| Item | Detail |
-|---|---|
-| Affected host | Metasploitable2 — 192.168.56.104 |
-| Attacker host | Kali Linux — 192.168.56.103 |
-| Monitoring host | Wazuh Server (SIEM + NIDS) — 192.168.56.102 |
-| Network | Isolated VirtualBox Host-Only network |
-| Impact | Simulated — no production systems or real data involved |
+The exercise validates an end-to-end blue-team workflow: **Reconnaissance → Exploitation → Persistence/C2 → Detection → Containment → Eradication → Verification.**
+
+---
+
+## 2. Scope and Objective
+
+**Objective:** Simulate a realistic single-host compromise and demonstrate the ability to detect, respond to, and remediate it using a self-built SIEM/NIDS stack, mirroring the workflow of a SOC analyst handling a live incident.
+
+**Lab topology:**
+
+| Role | System | IP Address |
+|---|---|---|
+| Attacker / Red Team | Kali Linux | 192.168.56.103 |
+| Target / Victim | Metasploitable2 | 192.168.56.104 |
+| SIEM / Blue Team | Wazuh Server + Suricata | 192.168.56.102 |
+
+All hosts reside on a VirtualBox Host-Only network (`192.168.56.0/24`), which by design carries no route to the internet. The Wazuh server observes traffic on this segment for detection purposes; it does not act as a mandatory gateway between the attacker and target hosts.
+
+![Home SOC Lab Architecture](screenshots/00-architecture-diagram.png)
+
+*Logical architecture diagram. This is a simplified, documentary representation of the lab built for this report — not a live network capture.*
+
+---
 
 ## 3. Reconnaissance
 
-An `nmap -sV -sC` scan was run against the target to enumerate running services and identify potential attack vectors. Results revealed several outdated, vulnerable services typical of a deliberately insecure host:
+An `nmap` service scan (`nmap -sV -sC`) was run against the target (192.168.56.104) to enumerate exposed services prior to exploitation.
 
-- **vsftpd 2.3.4** (port 21) — anonymous FTP access enabled
-- **Samba smbd 3.0.20-Debian** (ports 139/445)
-- **UnrealIRCd** (port 6667)
-- **Java RMI Registry** (port 1099)
-- A pre-configured root shell (port 1524)
+**Key findings:**
 
-Of these, the Samba service was selected as the exploitation vector, prioritizing a vulnerability with real-world relevance and documented impact over more commonly demonstrated shortcuts (e.g. the vsftpd 2.3.4 backdoor).
+- vsftpd 2.3.4 (port 21) — anonymous FTP access enabled
+- Samba smbd 3.0.20-Debian (ports 139/445)
+- UnrealIRCd (port 6667)
+- Java RMI Registry (port 1099)
+- A root shell exposed directly on port 1524
+- Multiple other outdated, unpatched services typical of an intentionally vulnerable host
+
+Samba's `usermap_script` misconfiguration was selected as the exploitation vector, prioritized over the more commonly-referenced vsftpd 2.3.4 backdoor for its technical relevance and direct impact (remote code execution as root, no privilege escalation required).
+
+---
 
 ## 4. Exploitation
 
-**Vulnerability:** Samba `usermap_script` Remote Command Execution — **CVE-2007-2447**
-**Tool:** Metasploit Framework
-**Module:** `exploit/multi/samba/usermap_script`
-**Payload:** `cmd/unix/reverse`
+**Vulnerability:** Samba "username map script" Command Execution (**CVE-2007-2447**)
+**Method:** Metasploit module `exploit/multi/samba/usermap_script`, payload `cmd/unix/reverse`
 
-The exploit was launched against 192.168.56.104 with the payload configured to call back to the attacker host (192.168.56.103) on port 4444. The exploit succeeded on **2026-09-14 at 17:19:43**, returning an interactive command shell.
+The exploit was launched against 192.168.56.104, establishing a reverse command shell back to the attacker host on 192.168.56.103. Access was confirmed as **root**, with no privilege escalation step required:
 
-**Post-exploitation verification:**
-- `whoami` → `root`
-- `id` → `uid=0(root) gid=0(root)`
-- `uname -a` → Linux metasploitable 2.6.24-16-server
+```
+whoami        → root
+id            → uid=0(root) gid=0(root)
+uname -a      → Linux metasploitable 2.6.24-16-server
+```
 
-No privilege escalation was required — the vulnerability granted immediate root-level access.
+**Timestamp of initial compromise:** 2026-09-14, 17:19:43
 
-## 5. Persistence & Command and Control (C2)
+---
 
-To simulate a realistic post-exploitation scenario, a persistence mechanism was installed combining persistence and C2 beaconing into a single technique: a cron job was added to the target's system crontab, executing a lightweight beacon script every 2 minutes to re-establish a reverse connection to the attacker host on a dedicated port.
+## 5. Persistence & Command-and-Control
 
-This mechanism was confirmed active on **2026-09-14 at 21:51:42**, with a successful reconnection observed on the attacker's listener.
+To simulate realistic post-exploitation attacker behavior, a lightweight persistence and C2 mechanism was installed rather than a static backdoor user, combining persistence and beaconing into a single technique.
 
-> **Note:** Exact script contents and full payload details are intentionally omitted from this report to avoid providing a directly reusable attack script.
+**Mechanism:**
+- A cron entry was added to `/etc/crontab` on the target, executing a shell script (`/tmp/beacon.sh`) every 2 minutes.
+- The script opened a reverse shell connection back to the attacker host (192.168.56.103) on a dedicated listener port, simulating periodic outbound C2 "check-in" traffic — a common real-world beaconing pattern used by malware and post-exploitation frameworks.
+
+**Timestamp of persistence establishment / first confirmed beacon:** 2026-09-14, 21:51:42
+
+This periodic, low-and-slow connection pattern was deliberately chosen as the detection target for the following phase, since beaconing behavior is one of the most reliable network-based indicators of an active compromise.
+
+---
 
 ## 6. Detection
 
-Two independent detection layers were configured to identify this activity:
+**Tools:** Suricata (network IDS) + Wazuh (SIEM / log correlation)
 
-**Network layer (Suricata):**
-A custom rule was written to flag the periodic beacon pattern. The rule fired correctly in `eve.json`, generating the alert:
-> `signature: "POSSIBLE C2 BEACON"` — category: *A Network Trojan was detected*
+A custom Suricata signature was developed to flag repeated short-lived TCP connections from the target host to the attacker's listener port within a short time window — the network signature of a beaconing implant.
 
-**SIEM layer (Wazuh):**
-The Suricata alert was ingested and correlated into a custom Wazuh detection rule (`rule.id 100101`, severity level 10):
-> *"Home SOC Lab: possible C2 connections"*
+![Suricata alert detected in Wazuh](screenshots/01-suricata-alert-detected.png)
 
-This alert surfaced directly in the Wazuh dashboard and was confirmed as reproducible, appearing consistently across multiple days while the beacon remained active — validating that the detection logic was reliable rather than a one-off match.
+Suricata alerts were ingested into Wazuh via Filebeat, where a corresponding custom correlation rule (**rule ID 100101**, severity level 10) was authored to flag this pattern as a probable C2 channel.
+
+![Wazuh dashboard showing correlated alert detail](screenshots/02-wazuh-alert-json-detail.png)
+
+**Confirmed detections:**
+
+| Timestamp | Rule | Level | Description |
+|---|---|---|---|
+| 2026-09-20, 17:40:06 | 100101 | 10 | Home SOC Lab: possible recurring C2 connections |
+| 2026-09-21, 15:51:44 | 100101 | 10 | Home SOC Lab: possible recurring C2 connections |
+
+![Wazuh dashboard confirming two correlated detections](screenshots/03-wazuh-dashboard-2-alerts.png)
+
+The alert firing on two separate days supports that the detection logic was stable rather than a one-off false positive. Note: a system clock discrepancy on the Wazuh server was identified and corrected during this exercise (see *Lessons Learned*); timestamps recorded before that correction should be read with this in mind, and these two events are treated as supporting evidence of a stable detection rule rather than as proof of two independently-timed incidents.
+
+---
 
 ## 7. Containment & Eradication
 
-Remediation was performed directly on the affected host:
+Once detection was validated, the compromised host was remediated:
 
-1. Removed the malicious cron entries from `/etc/crontab`.
-2. Verified the change with a `diff` against a pre-remediation backup, confirming that only the malicious lines were removed and no legitimate configuration was affected.
-3. Checked all other common persistence locations (`cron.d`, `cron.daily`, `cron.weekly`, `cron.hourly`, `cron.monthly`, `init.d`, `rc.local`) — no additional persistence found.
-4. Confirmed no beacon process was running, no active connections remained on the C2 port, and the dropped script file no longer existed on disk.
+1. **Removed persistence:** The three malicious cron entries referencing `/tmp/beacon.sh` were removed from `/etc/crontab` using `sed`. A copy of the crontab was preserved before editing, and the change was verified with both a `diff` against that backup and a hash comparison of the file before and after the edit.
 
-Remediation was completed on **2026-09-20 at 19:28:05**.
+![Crontab diff confirming removal of persistence entries](screenshots/04-remediation-crontab-diff.png)
 
-## 8. Verification
+2. **Checked for additional persistence:** Searched `/etc/cron.d`, `/etc/cron.daily`, `/etc/cron.weekly`, `/etc/cron.hourly`, `/etc/cron.monthly`, `/etc/init.d`, and `/etc/rc.local` for any reference to the beacon or its listener port — no matches found. The root user was confirmed to have no personal crontab.
 
-Following remediation, the Wazuh dashboard was reviewed over a 24-hour window spanning the cleanup. The last C2-related alert was observed **before** remediation; **no new alerts were generated afterward**, confirming the threat was fully contained and did not reappear.
+![Verification of no active beacon process or additional cron persistence](screenshots/05-remediation-process-check.png)
+
+3. **Verified no active process:** Confirmed via `ps aux` that no `beacon.sh` process was running in memory.
+4. **Verified no active connection:** Confirmed via `ss` and `netstat` that no TCP connection or listener remained on the C2 port.
+5. **Verified artifact removal:** Confirmed the `/tmp/beacon.sh` script no longer existed on disk at the time of verification. This confirms the artifact's absence at that point in time; it does not by itself establish the exact moment the beacon process last executed.
+
+**Timestamp of remediation:** 2026-09-20, 19:28:05 (confirmed via filesystem metadata, `stat /etc/crontab`)
+
+---
+
+## 8. Verification / Recovery
+
+Following remediation, the Wazuh dashboard was monitored over the subsequent 24-hour window (2026-09-21 13:02 → 2026-09-22 13:02). Only the last pre-remediation alert (2026-09-21, 15:51:44) appeared in that window — no new alerts were generated after the cron entry was removed, supporting that the C2 channel was eradicated.
+
+![Dashboard confirming no new alerts after remediation](screenshots/06-post-remediation-no-new-alerts.png)
+
+---
 
 ## 9. Indicators of Compromise (IOCs)
 
 | Type | Indicator |
 |---|---|
-| CVE | CVE-2007-2447 (Samba `usermap_script`) |
-| Persistence | Unauthorized entry in `/etc/crontab` executing a script every 2 minutes |
-| Network | Periodic outbound connection matching Suricata signature `sid:1000001` |
-| Detection rule | Wazuh `rule.id 100101` (level 10) |
+| Persistence mechanism | Cron entry in `/etc/crontab` executing a script every 2 minutes |
+| Dropped file | `/tmp/beacon.sh` |
+| Network behavior | Recurring short-lived outbound TCP connections at ~2-minute intervals to a fixed external host/port |
+| Detection rule | Wazuh custom rule ID `100101`, Suricata custom signature (network trojan / C2 category) |
+
+*(Specific payload contents, exact listener port, and full script logic are intentionally omitted from this report to avoid providing a directly reusable attack script.)*
+
+---
 
 ## 10. Lessons Learned
 
-- Correlating network-based (Suricata) and host-based (Wazuh) detections produced far more reliable results than relying on either source alone.
-- Persistence and C2 mechanisms can be technically simple — a single cron entry — while remaining highly effective if not actively monitored.
-- Infrastructure issues (e.g. systemd startup timeouts under constrained lab resources) can silently break detection pipelines; monitoring the health of the SOC stack itself is as important as monitoring the target.
-- Documenting each phase in real time made the final report significantly easier to reconstruct accurately.
-
-## 11. Architecture
-
-```
-                    Host-Only Network (192.168.56.0/24)
-
-   ┌─────────────────┐        ┌─────────────────┐        ┌─────────────────┐
-   │   Kali Linux     │        │   Wazuh Server   │        │  Metasploitable2 │
-   │  192.168.56.103  │◄──────►│  192.168.56.102  │◄──────►│  192.168.56.104  │
-   │  (Attacker)      │        │ (SIEM + NIDS)    │        │  (Target)        │
-   └─────────────────┘        └─────────────────┘        └─────────────────┘
-                                       │
-                                       ▼
-                              Wazuh Manager + Indexer
-                              + Dashboard + Suricata
-```
+- **Beaconing is a reliable detection surface.** Even a simple, low-volume periodic connection pattern was sufficient to build a working correlation rule — this mirrors how many real-world C2 frameworks are caught in production environments.
+- **Systemd timeouts matter at scale.** During lab setup, both Suricata and the Wazuh indexer (OpenSearch) failed to start under default systemd timeouts due to large rule sets / JVM startup time — a reminder that infrastructure tuning is as much a part of SOC operations as detection logic itself.
+- **Log pipeline visibility gaps are easy to miss.** Suricata alerts initially never reached the Wazuh dashboard due to a missing `<localfile>` block and a missing JSON decoder — a good reminder to always verify the full data pipeline end-to-end, not just that the source tool is generating logs.
+- **Clock accuracy affects evidence quality.** A system clock discrepancy on the Wazuh server was found and corrected mid-exercise. This was a useful reminder that in real SOC operations, unsynchronized clocks across hosts can distort timelines and undermine confidence in correlated evidence — NTP synchronization should be a baseline check, not an afterthought.
+- **Verification closes the loop.** Remediation isn't complete without gathering evidence that the malicious activity actually stopped — the post-remediation monitoring window was as important as the fix itself.
 
 ---
 
-## Appendix — Timeline
+## 11. Evidence Notes & Known Gaps
 
-| Timestamp (2026) | Event |
+In the interest of accuracy, this report documents the following limitations honestly rather than overstating the evidence collected:
+
+- The architecture diagram is a documentary reconstruction built to illustrate the lab's logical layout; it is not a live configuration export.
+- The exploitation phase (Section 4) is described from command history and session output; a full terminal recording of the live Metasploit session was not preserved and is not included as a screenshot in this version.
+- Post-remediation TCP connection checks were performed as described in Section 7, but a final independent re-check immediately before closing this report was not separately re-captured.
+- The AI-assisted alert triage component referenced as a next step in this project was not yet implemented at the time of writing.
+
+These gaps are called out deliberately: an incident report that only shows favorable evidence is less credible than one that is transparent about what was and wasn't captured.
+
+---
+
+## 12. Lab Architecture
+
+See the architecture diagram in Section 2. VirtualBox Host-Only network segment: `192.168.56.0/24`.
+
+---
+
+## Appendix: Full Timeline
+
+| Date / Time | Event |
 |---|---|
-| Sep 14, 17:19:43 | Initial exploitation (Samba `usermap_script` / CVE-2007-2447) |
-| Sep 14, 21:51:42 | Persistence + C2 established via cron beacon |
-| Sep 20, 17:40:06 | First Wazuh detection (rule.id 100101) |
-| Sep 20, 19:28:05 | Remediation completed (crontab cleaned, verified) |
-| Sep 21, 15:51:44 | Second detection, confirming rule reliability |
+| 2026-09-14, 17:19:43 | Initial compromise (Samba usermap_script / CVE-2007-2447) |
+| 2026-09-14, 21:51:42 | Persistence + C2 established (cron + beacon script) |
+| 2026-09-20, 17:40:06 | First detection (Wazuh rule 100101) |
+| 2026-09-20, 19:28:05 | Remediation performed (crontab cleaned, verified via diff + hash comparison) |
+| 2026-09-21, 15:51:44 | Second detection — supports a stable, recurring detection pattern |
+| 2026-09-22 | Post-remediation monitoring window shows no further alerts |
 
----
 
-*This report documents a simulated security incident conducted entirely within an isolated home lab environment for educational purposes. No production systems, real organizations, or real data were involved.*
