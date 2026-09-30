@@ -1,0 +1,54 @@
+[
+  {
+    "rule_id": "100101",
+    "level": 10,
+    "src_ip": "192.168.56.104",
+    "src_host": "Metasploitable2",
+    "dest_ip": "192.168.56.103",
+    "dest_host": "Kali",
+    "dest_port": 4445,
+    "protocol": "TCP",
+    "timestamp": "2026-09-28T10:00:00Z",
+    "description": "Custom rule: suspicious TCP connection to non-standard port 4445",
+    "raw_log": "srcip=192.168.56.104 dstip=192.168.56.103 dstport=4445 proto=tcp flags=SYN"
+  },
+  {
+    "rule_id": "100101",
+    "level": 10,
+    "src_ip": "192.168.56.104",
+    "src_host": "Metasploitable2",
+    "dest_ip": "192.168.56.103",
+    "dest_host": "Kali",
+    "dest_port": 4445,
+    "protocol": "TCP",
+    "timestamp": "2026-09-28T10:02:11Z",
+    "description": "Custom rule: suspicious TCP connection to non-standard port 4445",
+    "raw_log": "srcip=192.168.56.104 dstip=192.168.56.103 dstport=4445 proto=tcp flags=SYN"
+  },
+  {
+    "rule_id": "100101",
+    "level": 10,
+    "src_ip": "192.168.56.104",
+    "src_host": "Metasploitable2",
+    "dest_ip": "192.168.56.103",
+    "dest_host": "Kali",
+    "dest_port": 4445,
+    "protocol": "TCP",
+    "timestamp": "2026-09-28T10:04:32Z",
+    "description": "Custom rule: suspicious TCP connection to non-standard port 4445",
+    "raw_log": "srcip=192.168.56.104 dstip=192.168.56.103 dstport=4445 proto=tcp flags=SYN"
+  },
+  {
+    "rule_id": "5710",
+    "level": 5,
+    "src_ip": "10.0.2.15",
+    "src_host": "unknown (outside the lab network)",
+    "dest_ip": "192.168.56.102",
+    "dest_host": "Wazuh-server",
+    "dest_port": 22,
+    "protocol": "TCP",
+    "timestamp": "2026-09-28T10:05:50Z",
+    "description": "sshd: connection attempt from an IP outside the lab network",
+    "raw_log": "srcip=10.0.2.15 dstip=192.168.56.102 dstport=22 proto=tcp user=root result=failed"
+  }
+]
