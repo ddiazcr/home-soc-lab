@@ -115,9 +115,9 @@ Beyond detection and manual response, this lab includes an AI-powered triage lay
 - Metasploitable2
 - VirtualBox
 
-## Roadmap
+## Next Project
 
-Next planned addition to this lab: Windows + Active Directory logging via a Wazuh agent, focused on login events, account creation, privilege changes, and scheduled tasks — closing the gap in Windows-based enterprise detection scenarios.
+This lab continues in **[Corporate SOC Simulation](https://github.com/ddiazcr/corporate-soc-simulation)**: a Windows Server 2022 + Active Directory domain (Nimbrek S.A.) monitored by this same Wazuh stack, focused on login events, account changes, privilege escalation and Kerberos attacks — closing the gap in Windows-based enterprise detection scenarios.
 
 ---
 
