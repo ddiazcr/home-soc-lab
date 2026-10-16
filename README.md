@@ -66,6 +66,8 @@ A cron job was installed on the target (`/etc/crontab`) to execute a beacon scri
 - **Wazuh** correlated the Suricata alert into a custom detection rule (`rule.id 100101`, level 10) — *"Home SOC Lab: possible C2 connections"* — surfaced directly in the Wazuh dashboard.
 - Alerts were confirmed on two separate days, validating that detection persisted reliably across the beacon's lifecycle.
 
+🛡️ [`detections/`](./detections/README.md) — the Suricata signature, Wazuh rule and log-collection config, with a line-by-line explanation of each
+
 ## Response & Remediation
 
 1. Removed the persistence mechanism from `/etc/crontab` on the target.

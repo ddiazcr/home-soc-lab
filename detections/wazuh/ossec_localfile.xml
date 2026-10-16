@@ -1,0 +1,16 @@
+<!--
+  Home SOC Lab - log collection block for Suricata
+
+  Add inside <ossec_config> in /var/ossec/etc/ossec.conf on the host that
+  runs Suricata (here the Wazuh manager itself, 192.168.56.102), then:
+    sudo systemctl restart wazuh-manager
+
+  log_format "json" makes Wazuh parse each eve.json line with its built-in
+  JSON decoder, which exposes fields such as alert.signature_id to rules.
+  Without this block Suricata alerts never reach the Wazuh dashboard.
+-->
+
+<localfile>
+  <log_format>json</log_format>
+  <location>/var/log/suricata/eve.json</location>
+</localfile>
