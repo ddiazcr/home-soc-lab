@@ -94,20 +94,22 @@ A custom Suricata signature was developed to flag repeated short-lived TCP conne
 
 ![Suricata alert detected in Wazuh](evidence/01-suricata-alert-detected.png)
 
-Suricata alerts were ingested into Wazuh via Filebeat, where a corresponding custom correlation rule (**rule ID 100101**, severity level 10) was authored to flag this pattern as a probable C2 channel.
+Suricata writes its alerts to `eve.json`, which the Wazuh manager's log collector reads as JSON (a `<localfile>` block in `ossec.conf`). A custom correlation rule (**rule ID 100101**, severity level 10) was authored on top of Wazuh's built-in Suricata rule to flag this signature as a probable C2 channel. The exact rule files are published in [`detections/`](./detections/README.md).
 
 ![Wazuh dashboard showing correlated alert detail](evidence/02-wazuh-alert-json-detail.png)
 
 **Confirmed detections:**
 
-| Timestamp | Rule | Level | Description |
-|---|---|---|---|
-| 2026-09-20, 17:40:06 | 100101 | 10 | Home SOC Lab: possible recurring C2 connections |
-| 2026-09-21, 15:51:44 | 100101 | 10 | Home SOC Lab: possible recurring C2 connections |
+| Dashboard time (UTC−6) | UTC | Rule | Level | Description |
+|---|---|---|---|---|
+| 2026-09-20, 17:40:06 | 2026-09-20, 23:40:06 | 100101 | 10 | Home SOC Lab: possible recurring C2 connections |
+| 2026-09-21, 15:51:44 | 2026-09-21, 21:51:44 | 100101 | 10 | Home SOC Lab: possible recurring C2 connections |
+
+The dashboard shows times in the browser's time zone (UTC−6); the raw alert in `alerts.json` carries the UTC value (`2026-09-21T21:51:44.075+0000` for the second detection). The first raw Suricata alert for the signature (Wazuh rule 86601, `evidence/01-suricata-alert-detected.png`) is timestamped 2026-09-20 17:05:00 UTC−6 (23:05:00 UTC).
 
 ![Wazuh dashboard confirming two correlated detections](evidence/03-wazuh-dashboard-2-alerts.png)
 
-The alert firing on two separate days supports that the detection logic was stable rather than a one-off false positive. Note: a system clock discrepancy on the Wazuh server was identified and corrected during this exercise (see *Lessons Learned*); timestamps recorded before that correction should be read with this in mind, and these two events are treated as supporting evidence of a stable detection rule rather than as proof of two independently-timed incidents.
+The alert firing on two separate days supports that the detection logic matched the beacon traffic more than once rather than being a one-off. Note: a system clock discrepancy on the Wazuh server was identified and corrected during this exercise (see *Lessons Learned*), and the size of the offset was not recorded. Both detections are timestamped *after* the remediation in Section 7 when the clocks are compared as recorded; Section 8 explains what this does and does not allow us to conclude.
 
 ---
 
@@ -127,13 +129,26 @@ Once detection was validated, the compromised host was remediated:
 4. **Verified no active connection:** Confirmed via `ss` and `netstat` that no TCP connection or listener remained on the C2 port.
 5. **Verified artifact removal:** Confirmed the `/tmp/beacon.sh` script no longer existed on disk at the time of verification. This confirms the artifact's absence at that point in time; it does not by itself establish the exact moment the beacon process last executed.
 
-**Timestamp of remediation:** 2026-09-20, 19:28:05 (confirmed via filesystem metadata, `stat /etc/crontab`)
+**Timestamp of remediation:** 2026-09-20, 19:28:05 −0400 on the Metasploitable2 clock, i.e. 23:28:05 UTC / 17:28:05 UTC−6 (modification time of `/etc/crontab`, shown in the `diff -u` header in the screenshot above)
 
 ---
 
 ## 8. Verification / Recovery
 
-Following remediation, the Wazuh dashboard was monitored over the subsequent 24-hour window (2026-09-21 13:02 → 2026-09-22 13:02). Only the last pre-remediation alert (2026-09-21, 15:51:44) appeared in that window — no new alerts were generated after the cron entry was removed, supporting that the C2 channel was eradicated.
+Following remediation, the Wazuh dashboard was monitored over a 24-hour window (2026-09-21 13:02 → 2026-09-22 13:02 UTC−6). One rule 100101 alert appeared in that window, at 2026-09-21 15:51:44 UTC−6, and no further alerts followed it for the remaining ~21 hours.
+
+**Timeline inconsistency.** Normalized to UTC, the evidence places the events in this order:
+
+| UTC | Event | Clock |
+|---|---|---|
+| 2026-09-20 23:05:00 | First raw Suricata alert for `sid:1000001` (rule 86601) | Wazuh server |
+| 2026-09-20 23:28:05 | `/etc/crontab` modified (remediation) | Metasploitable2 |
+| 2026-09-20 23:40:06 | First rule 100101 alert | Wazuh server |
+| 2026-09-21 21:51:44 | Second rule 100101 alert | Wazuh server |
+
+Taken at face value, both rule 100101 alerts came after the persistence was removed, which should not happen if the cron entry was the only thing running the beacon. Two explanations fit the evidence: (a) the Wazuh server clock was still wrong when these events were recorded, so the ordering across the two hosts is unreliable; or (b) the beacon kept running for a while after the crontab edit. The evidence collected does not settle which one is true.
+
+What the evidence does support: no TCP/4445 connection or `beacon.sh` process remained on the target at verification time (Section 7), and no alert was generated after 2026-09-21 21:51:44 UTC for the rest of the monitoring window. This supports that the C2 channel was eventually eradicated, but the exact moment it stopped cannot be tied to the remediation timestamp. In a real investigation this would be escalated as an open question and settled by checking NTP status on both hosts before closing the case.
 
 ![Dashboard confirming no new alerts after remediation](evidence/06-post-remediation-no-new-alerts.png)
 
@@ -167,6 +182,7 @@ Following remediation, the Wazuh dashboard was monitored over the subsequent 24-
 In the interest of accuracy, this report documents the following limitations honestly rather than overstating the evidence collected:
 
 - The architecture diagram is a documentary reconstruction built to illustrate the lab's logical layout; it is not a live configuration export.
+- Timestamps come from three different clocks: Metasploitable2 (UTC−4), the Wazuh server (raw alerts in UTC) and the dashboard (UTC−6). The Wazuh server clock was corrected mid-exercise without recording the offset, which is why the order of detection and remediation cannot be confirmed (Section 8). The time zone of the attacker-side timestamps from 2026-09-14 was not recorded.
 - The exploitation phase (Section 4) is described from command history and session output; a full terminal recording of the live Metasploit session was not preserved and is not included as a screenshot in this version.
 - Post-remediation TCP connection checks were performed as described in Section 7, but a final independent re-check immediately before closing this report was not separately re-captured.
 - The AI-assisted alert triage component referenced as a next step in this project was not yet implemented at the time of writing.
@@ -183,13 +199,14 @@ See the architecture diagram in Section 2. VirtualBox Host-Only network segment:
 
 ## Appendix: Full Timeline
 
-| Date / Time | Event |
+| Date / Time (UTC) | Event |
 |---|---|
-| 2026-09-14, 17:19:43 | Initial compromise (Samba usermap_script / CVE-2007-2447) |
-| 2026-09-14, 21:51:42 | Persistence + C2 established (cron + beacon script) |
-| 2026-09-20, 17:40:06 | First detection (Wazuh rule 100101) |
-| 2026-09-20, 19:28:05 | Remediation performed (crontab cleaned, verified via diff + hash comparison) |
-| 2026-09-21, 15:51:44 | Second detection — supports a stable, recurring detection pattern |
-| 2026-09-22 | Post-remediation monitoring window shows no further alerts |
+| 2026-09-14, 17:19:43 *(time zone not recorded)* | Initial compromise (Samba usermap_script / CVE-2007-2447) |
+| 2026-09-14, 21:51:42 *(time zone not recorded)* | Persistence + C2 established (cron + beacon script) |
+| 2026-09-20, 23:05:00 | First raw Suricata alert for `sid:1000001` (Wazuh rule 86601) |
+| 2026-09-20, 23:28:05 | Remediation performed (crontab cleaned, verified via diff + hash comparison) — Metasploitable2 clock |
+| 2026-09-20, 23:40:06 | First detection (Wazuh rule 100101) — after remediation as recorded, see Section 8 |
+| 2026-09-21, 21:51:44 | Second detection (Wazuh rule 100101) — last alert observed |
+| 2026-09-22, 19:02 | End of the monitoring window, no further alerts |
 
 

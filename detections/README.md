@@ -107,7 +107,6 @@ context instead of duplicating it. The `^...$` anchors avoid matching other SIDs
 
 No custom decoder is included. The evidence shows Wazuh's built-in rule 86601 firing on the Suricata event, and
 that rule only matches events decoded by the stock `json` decoder, so the lab ended up using the built-in decoder
-through `log_format json`. The "missing JSON decoder" mentioned in the report's *Lessons Learned* most likely
-refers to that missing `log_format json` setting rather than to a separate decoder file. **Open question:** if a
-custom decoder was written during troubleshooting, it should be added here.
+through `log_format json`. The "missing JSON decoder" mentioned in the report's *Lessons Learned* refers to that
+missing `log_format json` setting, not to a separate decoder file.
 

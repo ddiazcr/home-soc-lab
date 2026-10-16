@@ -77,17 +77,17 @@ A cron job was installed on the target (`/etc/crontab`) to execute a beacon scri
 
 ## Verification
 
-Reviewed the Wazuh dashboard over a 24-hour window spanning the remediation: the last C2 alert appeared *before* remediation, with **no new alerts generated afterward** — confirming the incident was fully contained.
+Reviewed the Wazuh dashboard over a 24-hour window after the remediation: one last C2 alert appeared at the start of the window, and **no new alerts were generated for the remaining ~21 hours**. On the clocks as recorded, both C2 alerts are timestamped *after* the crontab was cleaned, so the exact moment the beacon stopped could not be confirmed (the Wazuh server clock was corrected mid-exercise). The report documents this openly in Section 8 instead of hiding it.
 
 ## Timeline
 
 | Timestamp (2026) | Event |
 |---|---|
-| Sep 14, 17:19:43 | Initial exploitation (Samba `usermap_script` / CVE-2007-2447) |
-| Sep 14, 21:51:42 | Persistence + C2 established via cron beacon |
-| Sep 20, 17:40:06 | First Wazuh detection (rule.id 100101) |
-| Sep 20, 19:28:05 | Remediation completed (crontab cleaned, verified) |
-| Sep 21, 15:51:44 | Second detection confirming rule reliability |
+| Sep 14, 17:19:43 (time zone not recorded) | Initial exploitation (Samba `usermap_script` / CVE-2007-2447) |
+| Sep 14, 21:51:42 (time zone not recorded) | Persistence + C2 established via cron beacon |
+| Sep 20, 23:28:05 UTC | Remediation completed (crontab cleaned, verified) |
+| Sep 20, 23:40:06 UTC | First Wazuh detection (rule.id 100101) |
+| Sep 21, 21:51:44 UTC | Second and last detection |
 
 ## Incident Report
 
