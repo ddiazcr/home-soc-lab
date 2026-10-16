@@ -39,9 +39,12 @@ Wazuh alert → dedup check (SQLite) → Claude API (Haiku 4.5) → case file (S
 - **SQLite over a message queue.** For this lab's alert volume, a queueing
   system would be complexity with no payoff. SQLite gives durable case
   storage with zero infrastructure.
-- **Deduplication by (rule + source IP + destination IP), not by content.**
-  This keeps a beaconing C2 connection from spamming a new case every 2
-  minutes. It also turned out to be a limitation — see the Findings section.
+- **Deduplication by (rule + source IP + destination IP) plus a content
+  fingerprint.** This keeps a beaconing C2 connection from spamming a new
+  case every 2 minutes, while any change in the alert's description, raw
+  log, port, protocol or level opens a new case. The first version grouped
+  by rule and IPs only, which turned out to be exploitable — see the
+  Findings section.
 - **Fail-safe notification.** If the AI call fails for any reason (API
   down, bad response, no credit), the pipeline still sends the raw alert to
   Telegram, explicitly marked as "AI analysis unavailable." A missed
@@ -88,12 +91,20 @@ should be treated as a suspicious indicator, not obeyed.
   fields to every alert (which real Wazuh deployments already provide from
   asset inventory), and by explicitly instructing the model never to infer
   a host's identity from its IP alone.
-- **The dedup logic is content-blind.** It groups strictly by
-  (rule + source IP + destination IP). An attacker who understood this
-  design could deliberately reuse a recently-seen rule/IP signature to get
-  a malicious alert silently merged into an existing case, skipping AI
-  analysis entirely. This is a known limitation, not yet fixed — documented
-  here rather than hidden.
+- **The dedup logic was content-blind (fixed).** The first version grouped
+  strictly by (rule + source IP + destination IP). An attacker who
+  understood this design could deliberately reuse a recently-seen rule/IP
+  signature to get a malicious alert silently merged into an existing case,
+  skipping AI analysis entirely. Dedup now also compares a fingerprint of
+  the attacker-influenced fields (`description`, `raw_log`, `dest_port`,
+  `protocol`, `level`), with timestamps and ephemeral source ports stripped
+  so real beacon repeats still collapse. An alert that matches a recent
+  case's rule and IPs but not its content gets its own case, its own AI
+  analysis, and a note in the Telegram message pointing at the related
+  case. `test_dedup.py` reproduces the bypass and fails on the old logic.
+  Remaining trade-off: if a real source puts other per-event values in
+  `raw_log` (sequence numbers, session IDs), those need adding to the
+  stripped fields, or every repeat becomes a new case.
 
 ## Running it
 
@@ -104,6 +115,7 @@ export TELEGRAM_BOT_TOKEN="..."
 export TELEGRAM_CHAT_ID="..."
 python soc_ai_pipeline.py simulated_alerts.json
 python soc_ai_pipeline.py redteam_alerts.json --no-dedup   # red-team test run
+python -m unittest test_dedup -v                            # dedup regression tests (no API or Telegram needed)
 ```
 
 `MODE` inside the script controls whether it calls the real API

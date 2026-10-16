@@ -34,6 +34,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS casos (
             id TEXT PRIMARY KEY,
             hash_dedup TEXT,
+            huella_contenido TEXT,
             regla TEXT,
             origen TEXT,
             destino TEXT,
@@ -47,6 +48,10 @@ def init_db():
             estado TEXT
         )
     """)
+    # Databases created before the content fingerprint existed lack the column.
+    columnas = {fila[1] for fila in conn.execute("PRAGMA table_info(casos)")}
+    if "huella_contenido" not in columnas:
+        conn.execute("ALTER TABLE casos ADD COLUMN huella_contenido TEXT")
     conn.commit()
     return conn
 
@@ -56,13 +61,53 @@ def calcular_hash(regla, origen, destino):
     return hashlib.sha256(base.encode()).hexdigest()[:16]
 
 
-def buscar_caso_reciente(conn, hash_dedup):
+# Fields that are expected to change between repeats of the same event
+# (timestamps, ephemeral source ports) are stripped before fingerprinting, so a
+# beacon firing every 2 minutes still collapses into one case.
+CAMPOS_VOLATILES = re.compile(
+    r"\b(timestamp|time|srcport|src_port|spt)=\S+"
+    r"|\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?",
+    re.IGNORECASE,
+)
+
+
+def calcular_huella_contenido(alerta):
+    """Fingerprint of the alert content that an attacker can influence.
+
+    Dedup used to group only by (rule + src IP + dest IP), so a new alert that
+    reused a recent rule/IP pair was merged into the old case without being
+    analyzed, whatever its description or raw log said. Hashing the content
+    too means any change in those fields opens a new case and a new analysis.
+    """
+    raw_log = CAMPOS_VOLATILES.sub("", str(alerta.get("raw_log", "")))
+    base = json.dumps(
+        {
+            "level": alerta.get("level"),
+            "dest_port": alerta.get("dest_port"),
+            "protocol": alerta.get("protocol"),
+            "description": alerta.get("description"),
+            "raw_log": " ".join(raw_log.split()),
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(base.encode()).hexdigest()[:16]
+
+
+def buscar_caso_reciente(conn, hash_dedup, huella_contenido):
     limite = (datetime.now(timezone.utc) - timedelta(minutes=DEDUP_WINDOW_MINUTES)).isoformat()
     cur = conn.execute(
-        "SELECT id, conteo FROM casos WHERE hash_dedup = ? AND ultima_deteccion > ?",
+        "SELECT id, conteo, huella_contenido FROM casos "
+        "WHERE hash_dedup = ? AND ultima_deteccion > ? "
+        "ORDER BY ultima_deteccion DESC",
         (hash_dedup, limite),
     )
-    return cur.fetchone()
+    filas = cur.fetchall()
+    for caso_id, conteo, huella in filas:
+        if huella == huella_contenido:
+            return (caso_id, conteo), None
+    # Same rule and IPs as a recent case but different content: never merge it.
+    return None, (filas[0][0] if filas else None)
 
 
 def cargar_system_prompt():
@@ -113,7 +158,10 @@ def parsear_json_ia(texto):
 
 def procesar_alerta(conn, alerta, forzar_nuevo=False):
     hash_dedup = calcular_hash(alerta["rule_id"], alerta["src_ip"], alerta["dest_ip"])
-    existente = None if forzar_nuevo else buscar_caso_reciente(conn, hash_dedup)
+    huella_contenido = calcular_huella_contenido(alerta)
+    existente, caso_relacionado = (
+        (None, None) if forzar_nuevo else buscar_caso_reciente(conn, hash_dedup, huella_contenido)
+    )
     ahora = datetime.now(timezone.utc).isoformat()
 
     if existente:
@@ -125,6 +173,12 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False):
         conn.commit()
         print(f"[DEDUP] Caso {caso_id} actualizado (conteo={conteo + 1})")
         return caso_id
+
+    if caso_relacionado:
+        print(
+            f"[DEDUP] Mismo rule/IPs que el caso {caso_relacionado} pero contenido distinto: "
+            "se abre un caso nuevo y se analiza"
+        )
 
     # Unique ID per incident (not derived from rule+IPs alone, so it never
     # collides with an older case outside the dedup window, even when it is
@@ -139,10 +193,13 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False):
         print(f"[ERROR] Falló el análisis de IA: {e}")
 
     conn.execute(
-        "INSERT INTO casos VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO casos (id, hash_dedup, huella_contenido, regla, origen, destino, "
+        "primera_deteccion, ultima_deteccion, conteo, evidencia, analisis_ia, "
+        "prioridad, confianza, estado) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             caso_id,
             hash_dedup,
+            huella_contenido,
             alerta["rule_id"],
             alerta["src_ip"],
             alerta["dest_ip"],
@@ -157,7 +214,7 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False):
         ),
     )
     conn.commit()
-    notificar(caso_id, alerta, analisis, estado)
+    notificar(caso_id, alerta, analisis, estado, caso_relacionado)
     return caso_id
 
 
@@ -183,7 +240,7 @@ def enviar_telegram(mensaje):
         print(mensaje)
 
 
-def notificar(caso_id, alerta, analisis, estado):
+def notificar(caso_id, alerta, analisis, estado, caso_relacionado=None):
     if estado == "analizado":
         flag_injection = " ⚠️ POSIBLE INYECCIÓN DETECTADA EN EL LOG" if analisis.get("possible_prompt_injection") else ""
         mensaje = (
@@ -198,6 +255,11 @@ def notificar(caso_id, alerta, analisis, estado):
             f"Regla: {alerta['rule_id']}\n"
             f"Origen: {alerta['src_ip']} -> Destino: {alerta['dest_ip']}\n"
             f"Revisar manualmente."
+        )
+    if caso_relacionado:
+        mensaje += (
+            f"\nNota: mismo rule/IPs que el caso {caso_relacionado} pero con contenido "
+            "distinto. Revisar si alguien intenta esconder una alerta nueva."
         )
     enviar_telegram(mensaje)
 
