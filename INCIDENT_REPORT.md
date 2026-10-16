@@ -1,4 +1,3 @@
-[incident-report-home-soc-lab.md](https://github.com/user-attachments/files/32584015/incident-report-home-soc-lab.md)
 # Incident Response Report — Home SOC Lab
 
 **Classification:** Simulated intrusion exercise (self-hosted lab)
@@ -150,6 +149,8 @@ Following remediation, the Wazuh dashboard was monitored over the subsequent 24-
 
 *(Specific payload contents, exact listener port, and full script logic are intentionally omitted from this report to avoid providing a directly reusable attack script.)*
 
+For a technique-by-technique MITRE ATT&CK mapping of this incident, including detection coverage and gaps, see [`mitre_attack_mapping.md`](./mitre_attack_mapping.md).
+
 ---
 
 ## 10. Lessons Learned
@@ -169,7 +170,7 @@ In the interest of accuracy, this report documents the following limitations hon
 - The architecture diagram is a documentary reconstruction built to illustrate the lab's logical layout; it is not a live configuration export.
 - The exploitation phase (Section 4) is described from command history and session output; a full terminal recording of the live Metasploit session was not preserved and is not included as a screenshot in this version.
 - Post-remediation TCP connection checks were performed as described in Section 7, but a final independent re-check immediately before closing this report was not separately re-captured.
-- The AI-assisted alert triage component referenced as a next step in this project was not yet implemented at the time of writing.
+- The AI-assisted alert triage pipeline was built and tested after this incident was closed (2026-09-28 to 2026-09-29), using alerts based on this incident's detections. It played no part in the detection or response described in this report. Its design, red-team results and known limitations are documented in [`AI/README.md`](./AI/README.md) and [`pipeline_metrics.md`](./pipeline_metrics.md).
 
 These gaps are called out deliberately: an incident report that only shows favorable evidence is less credible than one that is transparent about what was and wasn't captured.
 

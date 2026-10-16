@@ -1,17 +1,17 @@
 """
-Pipeline de triage automatizado para el Home SOC Lab.
+Automated triage pipeline for the Home SOC Lab.
 
-MODO SIMULADO (por defecto): no llama a la API de Claude, usa un análisis
-de prueba, para poder probar toda la lógica (dedup, expediente, notificación)
-sin necesitar crédito activo.
+SIMULATED MODE (MODE = "SIMULADO", default): does not call the Claude API and
+uses a canned analysis instead, so the whole flow (dedup, case file,
+notification) can be tested without active API credit.
 
-MODO REAL: cuando tengas la API de Claude activa, cambiá MODE a "REAL"
-más abajo. Necesita la variable de entorno ANTHROPIC_API_KEY y el archivo
-system_prompt.txt en la misma carpeta.
+REAL MODE: once the Claude API is available, set MODE to "REAL" below.
+Requires the ANTHROPIC_API_KEY environment variable and system_prompt.txt in
+the same folder.
 
-Notificación por Telegram: si TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID están
-configurados como variables de entorno, se envía el mensaje real. Si no
-están configurados, se imprime en consola como respaldo (no rompe el script).
+Telegram notification: if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set as
+environment variables, the real message is sent. If they are not set, the
+message is printed to the console as a fallback (the script keeps running).
 """
 
 import os
@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 
 DB_PATH = "expedientes.db"
 DEDUP_WINDOW_MINUTES = 10
-MODE = "SIMULADO"  # cambiar a "REAL" cuando tengas la API activa
+MODE = "SIMULADO"  # set to "REAL" once the API is available
 
 
 def init_db():
@@ -95,8 +95,9 @@ def analizar_con_ia(alerta):
 
 
 def parsear_json_ia(texto):
-    """Limpia fences de markdown (```json ... ```) por si el modelo los agrega,
-    y extrae el primer objeto {...} como respaldo si viene con texto alrededor."""
+    """Strip markdown fences (```json ... ```) in case the model adds them,
+    and fall back to extracting the first {...} object if it comes wrapped
+    in extra text."""
     texto = texto.strip()
     if texto.startswith("```"):
         texto = re.sub(r"^```(json)?", "", texto).strip()
@@ -125,9 +126,9 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False):
         print(f"[DEDUP] Caso {caso_id} actualizado (conteo={conteo + 1})")
         return caso_id
 
-    # ID único por incidente (no depende solo de regla+IPs, para no chocar
-    # con un caso viejo de fuera de la ventana de dedup, aunque sea la misma
-    # regla/origen/destino de otro día).
+    # Unique ID per incident (not derived from rule+IPs alone, so it never
+    # collides with an older case outside the dedup window, even when it is
+    # the same rule/source/destination from another day).
     caso_id = f"{hash_dedup}-{uuid.uuid4().hex[:8]}"
     try:
         analisis = analizar_con_ia(alerta)
