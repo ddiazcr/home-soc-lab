@@ -1,0 +1,27 @@
+<!--
+  Home SOC Lab - custom Wazuh correlation rule (C2 beacon)
+
+  Install on the Wazuh manager:
+    append to /var/ossec/etc/rules/local_rules.xml
+    validate: sudo /var/ossec/bin/wazuh-analysisd -t
+    then:     sudo systemctl restart wazuh-manager
+
+  Chains off Wazuh's built-in rule 86601 ("Suricata: Alert - ..."), which
+  fires for every Suricata event_type "alert" read from eve.json, and raises
+  the specific lab signature sid:1000001 to level 10.
+
+  Rule ID, level, description and groups match the alert captured in
+  evidence/02-wazuh-alert-json-detail.png. The if_sid/field matching logic
+  is reconstructed (see detections/README.md).
+-->
+
+<group name="local,suricata,home_soc_lab,">
+
+  <rule id="100101" level="10">
+    <if_sid>86601</if_sid>
+    <field name="alert.signature_id">^1000001$</field>
+    <description>Home SOC Lab: posibles conexiones C2 recurrentes hacia Kali por TCP/4445.</description>
+    <group>possible_c2,</group>
+  </rule>
+
+</group>

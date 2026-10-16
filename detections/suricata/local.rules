@@ -1,0 +1,13 @@
+# Home SOC Lab - custom Suricata signature (C2 beacon detection)
+# Reconstructed from the alert captured in evidence/02-wazuh-alert-json-detail.png.
+# Fields confirmed by evidence: sid, rev, gid, msg, classtype (category/severity),
+# flowbit name, direction, hosts and destination port.
+# Inferred (not captured): exact flow/flowbits keyword order and the use of
+# detection_filter for the "3 flows within 420s" counter. See detections/README.md.
+#
+# Install: copy into /var/lib/suricata/rules/local.rules (or your rule path),
+# reference it under "rule-files:" in suricata.yaml, then run
+#   sudo suricata -T -c /etc/suricata/suricata.yaml   # syntax test
+#   sudo systemctl restart suricata
+
+alert tcp 192.168.56.104 any -> 192.168.56.103 4445 (msg:"LAB Possible C2 - 3 established flows within 420s"; flow:established,to_server; flowbits:isnotset,lab_c2_counted; flowbits:set,lab_c2_counted; detection_filter:track by_src, count 3, seconds 420; classtype:trojan-activity; sid:1000001; rev:2;)
