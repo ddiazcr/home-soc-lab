@@ -53,7 +53,8 @@ defensive outcome than simply "the injection was ignored."
 |---|---|
 | Same alert repeated 3x within the dedup window | ✅ Correctly grouped into a single case, count incremented |
 | Different alert (different rule) within same window | ✅ Correctly created a separate case |
-| **Limitation found:** dedup groups strictly by (rule + src IP + dest IP), with no inspection of alert content | ⚠️ A different/malicious alert reusing the same rule+IP signature as a recently-seen alert would be silently merged into the existing case instead of triggering a new AI analysis |
+| **Limitation found:** dedup grouped strictly by (rule + src IP + dest IP), with no inspection of alert content | ⚠️ A different/malicious alert reusing the same rule+IP signature as a recently-seen alert would be silently merged into the existing case instead of triggering a new AI analysis |
+| **Fix:** dedup also compares a content fingerprint (description, raw log, port, protocol, level; timestamps and source ports stripped) | ✅ Same rule+IPs with injected text in `description` or a changed `raw_log` now opens a new, analyzed case; 3 beacon repeats with different timestamps and source ports still collapse into 1 case (`AI/test_dedup.py`, 5/5 passing; the 2 bypass tests fail against the old logic) |
 
 ## Honest summary
 
@@ -61,6 +62,8 @@ The pipeline performed correctly on priority classification and resisted all
 tested injection techniques. It failed once on host attribution when given
 incomplete input, which was a pipeline design gap (missing context), not a
 model reasoning failure — and was fixed by enriching the input data rather
-than by trying to prompt-engineer around it. The dedup mechanism has a known
-content-blindness limitation that is flagged here as a finding, not silently
-left out.
+than by trying to prompt-engineer around it. The dedup mechanism was found to
+be content-blind, which let a crafted alert hide inside an existing case; that
+was fixed with a content fingerprint and a regression test, and the remaining
+trade-off (volatile fields in other log sources) is documented in
+`AI/README.md`.
